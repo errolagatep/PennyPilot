@@ -20,9 +20,10 @@ def get_tracker():
 
 tracker = get_tracker()
 
-# Custom CSS
+# Custom CSS with Dark Mode Support
 st.markdown("""
 <style>
+    /* Main header - uses CSS variables for theme compatibility */
     .main-header {
         font-size: 2.2rem;
         color: #1f77b4;
@@ -30,84 +31,174 @@ st.markdown("""
         margin-bottom: 1.5rem;
         font-weight: bold;
     }
+    
+    /* Dark mode compatible metric cards */
     .metric-card {
-        background-color: #f0f2f6;
+        background-color: var(--background-color, rgba(240, 242, 246, 0.1));
         padding: 1rem;
         border-radius: 0.5rem;
         border-left: 4px solid #1f77b4;
+        backdrop-filter: blur(10px);
     }
+    
+    /* Success and error messages with better contrast */
     .success-message {
         padding: 0.8rem;
-        background-color: #d4edda;
-        border-color: #c3e6cb;
-        color: #155724;
+        background-color: rgba(212, 237, 218, 0.2);
+        border: 1px solid rgba(195, 230, 203, 0.3);
+        color: var(--text-color, #155724);
         border-radius: 0.25rem;
         font-size: 0.9rem;
     }
     .error-message {
         padding: 0.8rem;
-        background-color: #f8d7da;
-        border-color: #f5c6cb;
-        color: #721c24;
+        background-color: rgba(248, 215, 218, 0.2);
+        border: 1px solid rgba(245, 198, 203, 0.3);
+        color: var(--text-color, #721c24);
         border-radius: 0.25rem;
         font-size: 0.9rem;
     }
     
-    /* Improve sidebar styling */
+    /* Dark mode compatible sidebar */
     .css-1d391kg {
         padding-top: 1rem;
     }
     
-    /* Better button spacing in sidebar */
+    /* Better button styling for both themes */
     .stSidebar .stButton > button {
         width: 100%;
         margin-bottom: 0.5rem;
         border-radius: 0.5rem;
         font-weight: 500;
+        background-color: var(--secondary-background-color, rgba(255, 255, 255, 0.05));
+        border: 1px solid var(--background-color, rgba(255, 255, 255, 0.1));
     }
     
-    /* Improve metric display */
-    .css-1r6slb0 {
-        background-color: #f8f9fa;
-        padding: 0.75rem;
-        border-radius: 0.5rem;
-        border: 1px solid #e9ecef;
-    }
-    
-    /* Better form styling */
+    /* Dark mode compatible forms */
     .stForm {
-        border: 1px solid #e9ecef;
+        border: 1px solid var(--background-color, rgba(255, 255, 255, 0.1));
         padding: 1.5rem;
         border-radius: 0.75rem;
-        background-color: #fefefe;
+        background-color: var(--secondary-background-color, rgba(255, 255, 255, 0.02));
+        backdrop-filter: blur(10px);
     }
     
-    /* Improve expander styling for transactions */
+    /* Dark mode compatible expanders */
     .streamlit-expanderHeader {
         font-size: 0.95rem;
         font-weight: 500;
+        background-color: var(--secondary-background-color, rgba(255, 255, 255, 0.05)) !important;
+        border-radius: 0.5rem;
+        padding: 0.5rem;
     }
     
-    /* Better dataframe display */
+    /* Better expander content styling */
+    .streamlit-expanderContent {
+        background-color: var(--secondary-background-color, rgba(255, 255, 255, 0.02)) !important;
+        border: 1px solid var(--background-color, rgba(255, 255, 255, 0.1));
+        border-radius: 0 0 0.5rem 0.5rem;
+        padding: 1rem;
+    }
+    
+    /* DataFrames with better dark mode support */
     .stDataFrame {
         border-radius: 0.5rem;
+        background-color: var(--secondary-background-color, rgba(255, 255, 255, 0.02));
     }
     
-    /* Responsive text sizes */
+    /* Dark mode compatible metrics */
+    [data-testid="metric-container"] {
+        background-color: var(--secondary-background-color, rgba(255, 255, 255, 0.05)) !important;
+        border: 1px solid var(--background-color, rgba(255, 255, 255, 0.1));
+        padding: 0.75rem;
+        border-radius: 0.5rem;
+        backdrop-filter: blur(10px);
+    }
+    
+    /* File uploader styling */
+    .stFileUploader {
+        background-color: var(--secondary-background-color, rgba(255, 255, 255, 0.02));
+        border: 2px dashed var(--background-color, rgba(255, 255, 255, 0.2));
+        border-radius: 0.5rem;
+        padding: 1rem;
+    }
+    
+    /* Tab styling for better visibility */
+    .stTabs [data-baseweb="tab-list"] {
+        background-color: var(--secondary-background-color, rgba(255, 255, 255, 0.05));
+        border-radius: 0.5rem;
+        padding: 0.25rem;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        background-color: transparent;
+        border-radius: 0.25rem;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background-color: var(--primary-color, #1f77b4) !important;
+        color: white !important;
+    }
+    
+    /* Number input and text input dark mode compatibility */
+    .stNumberInput > div > div > input,
+    .stTextInput > div > div > input,
+    .stTextArea > div > div > textarea,
+    .stSelectbox > div > div > div {
+        background-color: var(--secondary-background-color, rgba(255, 255, 255, 0.05)) !important;
+        border: 1px solid var(--background-color, rgba(255, 255, 255, 0.1)) !important;
+        color: var(--text-color, inherit) !important;
+    }
+    
+    /* Date input dark mode */
+    .stDateInput > div > div > input {
+        background-color: var(--secondary-background-color, rgba(255, 255, 255, 0.05)) !important;
+        border: 1px solid var(--background-color, rgba(255, 255, 255, 0.1)) !important;
+        color: var(--text-color, inherit) !important;
+    }
+    
+    /* Responsive design */
     @media (max-width: 768px) {
         .main-header {
             font-size: 1.8rem;
         }
-        .css-1r6slb0 {
+        [data-testid="metric-container"] {
             padding: 0.5rem;
+        }
+        .stForm {
+            padding: 1rem;
         }
     }
     
-    /* Improve caption styling */
+    /* Caption styling with better contrast */
     .css-183lzff {
-        color: #6c757d;
+        color: var(--text-color, #6c757d);
         font-style: italic;
         margin-bottom: 1rem;
+        opacity: 0.7;
+    }
+    
+    /* Info, warning, and error boxes with better dark mode compatibility */
+    .stAlert {
+        background-color: var(--secondary-background-color, rgba(255, 255, 255, 0.05)) !important;
+        border: 1px solid var(--background-color, rgba(255, 255, 255, 0.1)) !important;
+        backdrop-filter: blur(10px);
+    }
+    
+    /* Column config for better table display */
+    .stDataFrame table {
+        background-color: var(--secondary-background-color, rgba(255, 255, 255, 0.02)) !important;
+    }
+    
+    .stDataFrame th {
+        background-color: var(--background-color, rgba(255, 255, 255, 0.1)) !important;
+        color: var(--text-color, inherit) !important;
+    }
+    
+    .stDataFrame td {
+        background-color: var(--secondary-background-color, rgba(255, 255, 255, 0.02)) !important;
+        color: var(--text-color, inherit) !important;
+        border-color: var(--background-color, rgba(255, 255, 255, 0.1)) !important;
     }
 </style>
 """, unsafe_allow_html=True)
