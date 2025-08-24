@@ -9,13 +9,24 @@ from openai import OpenAI
 from dotenv import load_dotenv
 import streamlit as st
 
-load_dotenv()
+load_dotenv(override=True)
 
 class BudgetTrackerWeb:
     def __init__(self, excel_file: str = 'budget_data.xlsx'):
         self.excel_file = excel_file
         self.user_profile_file = 'user_profile.xlsx'
-        self.client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        
+        # Initialize OpenAI client only if API key exists
+        api_key = os.getenv('OPENAI_API_KEY')
+        if api_key:
+            try:
+                self.client = OpenAI(api_key=api_key)
+            except Exception as e:
+                self.client = None
+                st.warning(f"OpenAI client initialization failed: {str(e)[:50]}...")
+        else:
+            self.client = None
+        
         self._ensure_database_integrity()
         
     def _ensure_database_integrity(self):
@@ -204,10 +215,44 @@ class BudgetTrackerWeb:
         
         return df[df['id'] == transaction_id].iloc[0]
     
+    def _validate_api_key(self) -> tuple[bool, str]:
+        """Validate OpenAI API key and return status with message"""
+        api_key = os.getenv('OPENAI_API_KEY')
+        if not api_key:
+            return False, "No API key found in environment variables"
+        
+        if not api_key.startswith(('sk-', 'sk-proj-')):
+            return False, "Invalid API key format"
+        
+        try:
+            # Test the API key with a minimal request
+            response = self.client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": "test"}],
+                max_tokens=1
+            )
+            return True, "API key is valid"
+        except Exception as e:
+            error_str = str(e)
+            if "401" in error_str or "invalid_api_key" in error_str:
+                return False, "Invalid API key - please check your key at https://platform.openai.com/api-keys"
+            elif "insufficient_quota" in error_str:
+                return False, "API quota exceeded - check your OpenAI billing"
+            elif "rate_limit" in error_str:
+                return False, "Rate limit exceeded - please try again later"
+            else:
+                return False, f"API connection error: {error_str[:100]}"
+    
     def ai_categorize_expense(self, description: str) -> str:
-        """Use AI to categorize expense"""
+        """Use AI to categorize expense with better error handling"""
         try:
             if not os.getenv('OPENAI_API_KEY'):
+                return "Other"
+            
+            # Validate API key first
+            is_valid, message = self._validate_api_key()
+            if not is_valid:
+                st.warning(f"🔑 AI categorization unavailable: {message}")
                 return "Other"
                 
             response = self.client.chat.completions.create(
@@ -215,20 +260,35 @@ class BudgetTrackerWeb:
                 messages=[
                     {"role": "system", "content": "You are a financial categorization assistant. Categorize the expense into one of these categories: Food, Transportation, Entertainment, Healthcare, Shopping, Utilities, Housing, Education, Other. Return only the category name."},
                     {"role": "user", "content": f"Categorize this expense: {description}"}
-                ]
+                ],
+                max_tokens=50,
+                temperature=0.3
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
-            st.warning("AI categorization unavailable, using 'Other'")
+            error_str = str(e)
+            if "401" in error_str:
+                st.error("🔑 Invalid OpenAI API key. Please check your key at https://platform.openai.com/api-keys")
+            elif "insufficient_quota" in error_str:
+                st.error("💳 OpenAI quota exceeded. Please check your billing at https://platform.openai.com/account/billing")
+            else:
+                st.warning(f"⚠️ AI categorization unavailable: {error_str[:50]}...")
             return "Other"
     
     def get_balance(self, df: pd.DataFrame) -> float:
-        """Calculate current balance"""
+        """Calculate current balance (income - expenses - savings)"""
         if df.empty:
             return 0.0
         income = df[df['type'] == 'income']['amount'].sum()
         expenses = df[df['type'] == 'expense']['amount'].sum()
-        return income - expenses
+        savings = df[df['type'] == 'savings']['amount'].sum()
+        return income - expenses - savings
+    
+    def get_total_savings(self, df: pd.DataFrame) -> float:
+        """Calculate total savings accumulated"""
+        if df.empty:
+            return 0.0
+        return df[df['type'] == 'savings']['amount'].sum()
     
     def get_monthly_summary(self, df: pd.DataFrame, year: int = None, month: int = None) -> Dict:
         """Get monthly financial summary"""
@@ -333,10 +393,79 @@ class BudgetTrackerWeb:
                     labels={'x': 'Amount (₱)', 'y': 'Category'})
         return fig
     
+    def create_savings_pie_chart(self, df: pd.DataFrame):
+        """Create pie chart of savings by category"""
+        if df.empty:
+            return None
+        
+        savings = df[df['type'] == 'savings']
+        if savings.empty:
+            return None
+        
+        category_totals = savings.groupby('category')['amount'].sum().reset_index()
+        
+        fig = px.pie(category_totals, values='amount', names='category', 
+                    title='Savings by Category',
+                    color_discrete_sequence=px.colors.sequential.Greens_r)
+        return fig
+    
+    def create_savings_trend_chart(self, df: pd.DataFrame):
+        """Create cumulative savings trend chart"""
+        if df.empty:
+            return None
+        
+        savings = df[df['type'] == 'savings'].sort_values('date')
+        if savings.empty:
+            return None
+        
+        # Calculate cumulative savings
+        savings['cumulative_savings'] = savings['amount'].cumsum()
+        
+        fig = px.line(savings, x='date', y='cumulative_savings',
+                     title='Cumulative Savings Over Time',
+                     labels={'date': 'Date', 'cumulative_savings': 'Total Savings (₱)'},
+                     line_shape='linear',
+                     color_discrete_sequence=['#00CC96'])
+        
+        # Add markers for each savings transaction
+        fig.add_scatter(x=savings['date'], y=savings['cumulative_savings'],
+                       mode='markers',
+                       marker=dict(size=8, color='#00CC96'),
+                       showlegend=False)
+        
+        return fig
+    
+    def create_income_expense_savings_chart(self, df: pd.DataFrame):
+        """Create comprehensive chart showing income, expenses, and savings by month"""
+        if df.empty:
+            return None
+        
+        # Group by month and type
+        df['year_month'] = df['date'].dt.to_period('M').astype(str)
+        monthly_data = df.groupby(['year_month', 'type'])['amount'].sum().reset_index()
+        
+        fig = px.bar(monthly_data, x='year_month', y='amount', color='type',
+                    title='Monthly Income, Expenses & Savings',
+                    labels={'year_month': 'Month', 'amount': 'Amount (₱)'},
+                    color_discrete_map={
+                        'income': '#00CC96',
+                        'expense': '#EF553B', 
+                        'savings': '#AB63FA'
+                    })
+        return fig
+    
     def ai_spending_analysis(self, df: pd.DataFrame) -> str:
-        """Get AI-powered spending analysis"""
-        if df.empty or not os.getenv('OPENAI_API_KEY'):
-            return "No data available for analysis or OpenAI API key not configured."
+        """Get AI-powered spending analysis with better error handling"""
+        if df.empty:
+            return "📊 No transaction data available for analysis. Add some transactions first!"
+        
+        if not os.getenv('OPENAI_API_KEY'):
+            return "🔑 AI analysis requires an OpenAI API key. Please set OPENAI_API_KEY in your environment variables."
+        
+        # Validate API key first
+        is_valid, message = self._validate_api_key()
+        if not is_valid:
+            return f"🔑 AI analysis unavailable: {message}"
         
         summary = self.get_monthly_summary(df)
         recent_expenses = df[df['type'] == 'expense'].tail(10).to_dict('records')
@@ -351,18 +480,39 @@ class BudgetTrackerWeb:
             response = self.client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": "You are a financial advisor. Analyze the spending data and provide insights, patterns, and recommendations. Be concise but helpful."},
+                    {"role": "system", "content": "You are a financial advisor. Analyze the spending data and provide insights, patterns, and recommendations. Be concise but helpful. Focus on practical advice."},
                     {"role": "user", "content": f"Analyze this financial data: {str(analysis_data)}"}
-                ]
+                ],
+                max_tokens=300,
+                temperature=0.7
             )
             return response.choices[0].message.content
         except Exception as e:
-            return f"AI analysis unavailable: {str(e)}"
+            error_str = str(e)
+            if "401" in error_str:
+                return "🔑 Invalid OpenAI API key. Please check your key at https://platform.openai.com/api-keys"
+            elif "insufficient_quota" in error_str:
+                return "💳 OpenAI quota exceeded. Please check your billing at https://platform.openai.com/account/billing"
+            elif "rate_limit" in error_str:
+                return "⏱️ Rate limit exceeded. Please try again in a few minutes."
+            else:
+                return f"⚠️ AI analysis unavailable: {error_str[:100]}..."
     
     def ai_budget_recommendations(self, df: pd.DataFrame, monthly_income: float) -> str:
-        """Get AI-powered budget recommendations"""
-        if df.empty or not os.getenv('OPENAI_API_KEY'):
-            return "No data available for recommendations or OpenAI API key not configured."
+        """Get AI-powered budget recommendations with better error handling"""
+        if df.empty:
+            return "📊 No spending data available for recommendations. Add some transactions first!"
+        
+        if not os.getenv('OPENAI_API_KEY'):
+            return "🔑 Budget recommendations require an OpenAI API key. Please set OPENAI_API_KEY in your environment variables."
+        
+        if monthly_income <= 0:
+            return "💰 Please enter a valid monthly income amount to get personalized recommendations."
+        
+        # Validate API key first
+        is_valid, message = self._validate_api_key()
+        if not is_valid:
+            return f"🔑 Budget recommendations unavailable: {message}"
         
         summary = self.get_monthly_summary(df)
         
@@ -370,13 +520,23 @@ class BudgetTrackerWeb:
             response = self.client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": "You are a financial advisor. Based on income and spending patterns, provide budget recommendations using the 50/30/20 rule or other appropriate strategies."},
-                    {"role": "user", "content": f"Monthly income: ₱{monthly_income}, Current spending: {str(summary)}"}
-                ]
+                    {"role": "system", "content": "You are a financial advisor. Based on income and spending patterns, provide budget recommendations using the 50/30/20 rule or other appropriate strategies. Be specific and actionable."},
+                    {"role": "user", "content": f"Monthly income: ₱{monthly_income:,.2f}, Current spending summary: {str(summary)}"}
+                ],
+                max_tokens=400,
+                temperature=0.7
             )
             return response.choices[0].message.content
         except Exception as e:
-            return f"Budget recommendations unavailable: {str(e)}"
+            error_str = str(e)
+            if "401" in error_str:
+                return "🔑 Invalid OpenAI API key. Please check your key at https://platform.openai.com/api-keys"
+            elif "insufficient_quota" in error_str:
+                return "💳 OpenAI quota exceeded. Please check your billing at https://platform.openai.com/account/billing"
+            elif "rate_limit" in error_str:
+                return "⏱️ Rate limit exceeded. Please try again in a few minutes."
+            else:
+                return f"⚠️ Budget recommendations unavailable: {error_str[:100]}..."
     
     def load_user_profile(self) -> Dict:
         """Load user profile settings"""
@@ -447,21 +607,26 @@ class BudgetTrackerWeb:
         
         income_df = filtered_df[filtered_df['type'] == 'income']
         expense_df = filtered_df[filtered_df['type'] == 'expense']
+        savings_df = filtered_df[filtered_df['type'] == 'savings']
         
         total_income = income_df['amount'].sum() if not income_df.empty else 0
         total_expenses = expense_df['amount'].sum() if not expense_df.empty else 0
+        total_savings = savings_df['amount'].sum() if not savings_df.empty else 0
         
         # Calculate monthly averages
         date_range = (filtered_df['date'].max() - filtered_df['date'].min()).days
         months_span = max(1, date_range / 30.44)  # Average days per month
         
         return {
-            'total_balance': total_income - total_expenses,
+            'total_balance': total_income - total_expenses - total_savings,
             'total_income': total_income,
             'total_expenses': total_expenses,
+            'total_savings': total_savings,
             'avg_monthly_income': total_income / months_span,
             'avg_monthly_expenses': total_expenses / months_span,
+            'avg_monthly_savings': total_savings / months_span,
             'largest_expense': expense_df['amount'].max() if not expense_df.empty else 0,
+            'largest_saving': savings_df['amount'].max() if not savings_df.empty else 0,
             'most_frequent_category': expense_df['category'].mode().iloc[0] if not expense_df.empty and not expense_df['category'].mode().empty else 'N/A',
             'transaction_count': len(filtered_df),
             'date_range': f"{filtered_df['date'].min().strftime('%Y-%m-%d')} to {filtered_df['date'].max().strftime('%Y-%m-%d')}"

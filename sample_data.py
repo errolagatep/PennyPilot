@@ -25,6 +25,16 @@ def generate_sample_data():
         {'description': 'Side Business', 'amount': 8000, 'category': 'Income'},
     ]
     
+    savings_data = [
+        {'description': 'Emergency Fund Deposit', 'amount': 10000, 'category': 'Emergency Fund'},
+        {'description': 'Retirement Contribution', 'amount': 5000, 'category': 'Retirement'},
+        {'description': 'Investment Portfolio', 'amount': 8000, 'category': 'Investment'},
+        {'description': 'Vacation Fund', 'amount': 3000, 'category': 'Vacation Fund'},
+        {'description': 'House Down Payment', 'amount': 15000, 'category': 'House Down Payment'},
+        {'description': '401k Contribution', 'amount': 7000, 'category': 'Retirement'},
+        {'description': 'Emergency Buffer', 'amount': 2500, 'category': 'Emergency Fund'},
+    ]
+    
     expense_data = [
         # Housing
         {'description': 'Monthly Rent', 'amount': 18000, 'category': 'Housing'},
@@ -96,7 +106,32 @@ def generate_sample_data():
                 income['description'],
                 income['category'],
                 transaction_date.date()
-            )\n            transactions_added += 1
+            )
+            transactions_added += 1
+    
+    # Add monthly savings (3 months)
+    for month_offset in range(3):
+        month_date = start_date + timedelta(days=30 * month_offset)
+        
+        # Add 2-3 savings transactions per month
+        monthly_savings_count = random.randint(2, 3)
+        for _ in range(monthly_savings_count):
+            savings = random.choice(savings_data)
+            date_variation = random.randint(0, 15)  # Spread throughout month
+            transaction_date = month_date + timedelta(days=date_variation)
+            
+            # Add some variation to amounts
+            amount_variation = random.uniform(0.8, 1.2)
+            amount = int(savings['amount'] * amount_variation)
+            
+            tracker.add_transaction(
+                'savings',
+                amount,
+                savings['description'],
+                savings['category'],
+                transaction_date.date()
+            )
+            transactions_added += 1
     
     # Add random expenses throughout the period
     current_date = start_date

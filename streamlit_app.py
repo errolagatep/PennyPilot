@@ -150,6 +150,25 @@ if not tracker.is_first_time_user():
         st.sidebar.write(f"🎯 Savings Goal: ₱{profile['savings_goal']:,.2f}")
     st.sidebar.caption("Go to Setup to update your profile")
 
+# API Key Status in sidebar
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🔑 AI Features Status")
+api_key = os.getenv('OPENAI_API_KEY')
+if api_key:
+    # Test API key validity
+    if tracker.client:
+        is_valid, message = tracker._validate_api_key()
+        if is_valid:
+            st.sidebar.success("✅ AI features enabled")
+        else:
+            st.sidebar.error("❌ Invalid API key")
+            st.sidebar.caption(message)
+    else:
+        st.sidebar.error("❌ API client error")
+else:
+    st.sidebar.warning("⚠️ AI features disabled")
+    st.sidebar.caption("Set OPENAI_API_KEY to enable")
+
 # Determine which page to show based on button clicks or session state
 if 'current_page' not in st.session_state:
     if tracker.is_first_time_user():
@@ -336,9 +355,9 @@ elif page == "Dashboard":
             st.plotly_chart(bar_chart, use_container_width=True)
         
         st.subheader("📉 Monthly Trends")
-        trend_chart = tracker.create_monthly_trend_chart(df)
-        if trend_chart:
-            st.plotly_chart(trend_chart, use_container_width=True)
+        comprehensive_chart = tracker.create_income_expense_savings_chart(df)
+        if comprehensive_chart:
+            st.plotly_chart(comprehensive_chart, use_container_width=True)
         
         st.subheader("💹 Balance History")
         balance_chart = tracker.create_balance_chart(df)
@@ -387,7 +406,7 @@ elif page == "Add Transaction":
     with st.form("add_transaction"):
         st.subheader("📝 Transaction Details")
         
-        transaction_type = st.selectbox("Transaction Type", ["income", "expense"])
+        transaction_type = st.selectbox("Transaction Type", ["income", "expense", "savings"])
         amount = st.number_input("Amount (₱)", min_value=0.01, step=0.01)
         description = st.text_input("Description")
         
@@ -397,7 +416,13 @@ elif page == "Add Transaction":
                 ["", "Food", "Transportation", "Entertainment", "Healthcare", 
                  "Shopping", "Utilities", "Housing", "Education", "Other"]
             )
-        else:
+        elif transaction_type == "savings":
+            category = st.selectbox(
+                "Savings Category",
+                ["Emergency Fund", "Investment", "Retirement", "Vacation Fund", 
+                 "House Down Payment", "Education Fund", "Other Savings"]
+            )
+        else:  # income
             category = "Income"
             st.text("Category: Income")
         
@@ -625,6 +650,95 @@ elif page == "Data Management":
                 )
         else:
             st.info(f"No data available to download for {data_view}. Try a different time period or add some transactions.")
+
+elif page == "Savings Tracker":
+    st.header("💰 Savings Tracker")
+    st.caption(f"Track and analyze your {data_view.lower()} savings progress")
+    
+    # Get all data for savings calculations
+    all_df = tracker.load_data()  # Get all data for total calculations
+    savings_df = df[df['type'] == 'savings']  # Filtered data for display
+    
+    if savings_df.empty:
+        st.info(f"No savings data available for {data_view}. Add some savings transactions to get started!")
+        st.markdown("### 💡 Quick Add Savings")
+        with st.form("quick_savings"):
+            col1, col2 = st.columns(2)
+            with col1:
+                quick_amount = st.number_input("Savings Amount (₱)", min_value=0.01, step=100.0)
+                quick_category = st.selectbox("Category", ["Emergency Fund", "Investment", "Retirement", "Vacation Fund", "House Down Payment"])
+            with col2:
+                quick_desc = st.text_input("Description", value="Savings deposit")
+                quick_date = st.date_input("Date", value=date.today())
+            
+            if st.form_submit_button("💰 Add Savings", type="primary"):
+                tracker.add_transaction('savings', quick_amount, quick_desc, quick_category, quick_date)
+                st.success(f"✅ Savings of ₱{quick_amount:.2f} added!")
+                st.rerun()
+    else:
+        # Savings summary metrics
+        total_savings = savings_df['amount'].sum()
+        all_total_savings = tracker.get_total_savings(all_df)
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("💰 Period Savings", f"₱{total_savings:,.2f}")
+            st.metric("🏦 Total All-Time Savings", f"₱{all_total_savings:,.2f}")
+        
+        with col2:
+            largest_saving = savings_df['amount'].max()
+            st.metric("🏆 Largest Deposit", f"₱{largest_saving:,.2f}")
+            transaction_count = len(savings_df)
+            st.metric("📊 Deposits Count", f"{transaction_count:,}")
+        
+        with col3:
+            # Savings goal progress
+            profile = tracker.load_user_profile()
+            savings_goal = profile.get('savings_goal', 0)
+            if savings_goal > 0:
+                progress = min(100, (all_total_savings / savings_goal) * 100)
+                st.metric("🎯 Goal Progress", f"{progress:.1f}%")
+                st.progress(progress / 100)
+            else:
+                st.metric("🎯 Savings Goal", "Not set")
+                st.caption("Set goal in Setup page")
+        
+        st.divider()
+        
+        # Savings charts
+        st.header("📈 Savings Analytics")
+        
+        # Savings breakdown pie chart
+        st.subheader("📊 Savings by Category")
+        savings_pie = tracker.create_savings_pie_chart(df)
+        if savings_pie:
+            st.plotly_chart(savings_pie, use_container_width=True)
+        
+        # Cumulative savings trend
+        st.subheader("📈 Cumulative Savings Progress")
+        savings_trend = tracker.create_savings_trend_chart(all_df)  # Use all data for trend
+        if savings_trend:
+            st.plotly_chart(savings_trend, use_container_width=True)
+        
+        # Recent savings transactions
+        st.subheader("💳 Recent Savings Transactions")
+        recent_savings = savings_df.tail(10).sort_values('date', ascending=False)
+        
+        for idx, saving in recent_savings.iterrows():
+            with st.expander(f"₱{saving['amount']:,.2f} - {saving['description']} ({saving['date'].strftime('%Y-%m-%d')})"):
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.write(f"**💰 Amount:** ₱{saving['amount']:,.2f}")
+                    st.write(f"**🏷️ Category:** {saving['category']}")
+                    st.write(f"**📅 Date:** {saving['date'].strftime('%Y-%m-%d')}")
+                    st.write(f"**📝 Description:** {saving['description']}")
+                
+                with col2:
+                    if st.button(f"🗑️ Delete", key=f"delete_saving_{saving['id']}"):
+                        tracker.delete_transaction(int(saving['id']))
+                        st.success("Savings transaction deleted!")
+                        st.rerun()
 
 # Footer
 st.markdown("---")
